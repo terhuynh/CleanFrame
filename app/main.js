@@ -47,11 +47,12 @@
   var LOOK_VALUES = { bg: ['dark', 'light', 'photo'], layout: ['list', 'dock'], apps: ['icons', 'both', 'text'], font: Object.keys(FONTS).filter(function (id) { return id === 'manrope' || PRIVATE_FONTS.indexOf(id) >= 0; }), controls: ['icons', 'both', 'text'], focus: ['type', 'glass'], material: ['soft', 'frost', 'tint'] };
   var LOOK_NAMES = { bg: 'Background', layout: 'Layout', apps: 'Apps', font: 'Font', controls: 'Home controls', focus: 'Focus', material: 'Material' };
   var VALUE_NAMES = { dark: 'Dark', light: 'Light', photo: 'Photo', list: 'List', dock: 'Dock', type: 'Type', glass: 'Glass', soft: 'Soft', frost: 'Frost', tint: 'Clear tint', icons: 'Icons', both: 'Icons and text', text: 'Text' };
-  var UTIL = { art: ['Art Mode', 'art'], apps: ['All apps', 'apps'], arrange: ['Arrange', 'arrange'], settings: ['Settings', 'settings'] };
+  var UTIL = { inputs: ['Inputs', 'inputs'], art: ['Art Mode', 'art'], apps: ['All apps', 'apps'], arrange: ['Arrange', 'arrange'], settings: ['Settings', 'settings'] };
   var MSG = {
     leave: { title: 'Leave Home?', line: 'Open Samsung Home?', note: '', actions: [['stay', 'Stay'], ['samsung', 'Samsung Home']] }
   };
   var SVG = {
+    inputs: '<path d="M3.5 7.5h17v5.25L17.75 16.5H6.25L3.5 12.75Z"/><path d="M7.5 11.5h9"/>',
     art: '<rect x="3.5" y="4.5" width="17" height="15" rx="2"/><circle cx="9" cy="9.8" r="1.5"/><path d="m4.5 17.5 4.5-4.5 3 3 2.5-2.5 5 5"/>',
     apps: '<rect x="4" y="4" width="6.5" height="6.5" rx="1.6"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.6"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.6"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.6"/>',
     arrange: '<path d="M4 8.5h14M15 5.5l3 3-3 3M20 15.5H6M9 12.5l-3 3 3 3"/>',
@@ -491,14 +492,15 @@
   }
 
   /* ---------- Navigation targets ---------- */
-  function utils() { return ['art', 'apps', 'settings']; }
+  function utils() { return ['inputs', 'art', 'apps', 'settings']; }
   /* prev/next run along the apps; out goes to the controls, inn comes back (or to a per-app action). */
   function axes() {
     var v = S.c.layout === 'list';
     return { prev: v ? 'up' : 'left', next: v ? 'down' : 'right', out: v ? 'right' : 'up', inn: v ? 'left' : 'down' };
   }
   function utilAction(u) {
-    if (u === 'art') perform('Art Mode', FrameDevice.art);
+    if (u === 'inputs') openInputs('home');
+    else if (u === 'art') perform('Art Mode', FrameDevice.art);
     else if (u === 'apps') openApps();
     else openSettings();
   }
@@ -878,7 +880,7 @@
     ] }];
   }
   function detailRows(t) {
-    var rows = [[{ action: 'settings.back', label: t.group === 'rotation' ? 'Background' : t.group === 'inputs' ? 'Samsung' : 'Settings' }]];
+    var rows = [[{ action: 'settings.back', label: detailParent(t) }]];
     detailSections(t).forEach(function (section) {
       var enabled = section.items.filter(function (item) { return !item.disabled; });
       if (section.horizontal && enabled.length) rows.push(enabled);
@@ -910,11 +912,26 @@
     t.loading = true; t.inputError = null;
     FrameDevice.sources(function (err, list) {
       if (top() !== t) return;
-      t.loading = false; t.inputs = list || []; t.inputError = err ? err.message : null; after();
+      t.loading = false; t.inputs = list || []; t.inputError = err ? err.message : null;
+      if (t.autoFocus && t.inputs.length) { t.autoFocus = false; detailFocus(t, { action: 'input.' + suggestedInput(t.inputs).number }, 0); }
+      after();
     });
   }
-  function openInputs() {
-    openAppearance('inputs'); var t = top(); t.inputs = []; loadInputs(t);
+  /* First focus after the list arrives: another connected input, else the active one, else the first port. */
+  function suggestedInput(list) {
+    var other = null, active = null;
+    list.forEach(function (input) {
+      if (input.active) { if (!active) active = input; }
+      else if (input.connected && !other) other = input;
+    });
+    return other || active || list[0];
+  }
+  function openInputs(origin) {
+    openAppearance('inputs'); var t = top(); t.origin = origin === 'home' ? 'home' : 'samsung'; t.autoFocus = true; t.inputs = []; loadInputs(t);
+  }
+  /* The panel a detail's Back control returns to. Inputs can open from Home or from Samsung settings. */
+  function detailParent(t) {
+    return t.group === 'rotation' ? 'Background' : t.group === 'inputs' ? (t.origin === 'home' ? 'Home' : 'Samsung') : 'Settings';
   }
   function detailBack() { cancelLook(); S.err = null; pop(); FrameDevice.cancelSource(); }
   function detailOk(t, item) {
@@ -953,6 +970,7 @@
     },
     key: function (t, k) {
       var at = detailLocation(t), row = at.row, column = at.column;
+      t.autoFocus = false;
       if (k === 'back') { detailBack(); return; }
       if (k === 'ok') { detailOk(t, at.item); return; }
       if (k === 'up' || k === 'down') {
@@ -966,6 +984,7 @@
     },
     point: function (t, z, i, action) {
       if (z !== 'detail') return;
+      t.autoFocus = false;
       detailRows(t).some(function (items) { return items.some(function (item, column) {
         if (item.action !== action) return false;
         detailFocus(t, item, column); detailOk(t, item); return true;
@@ -1418,7 +1437,7 @@
         + ' data-z="detail" data-i="0" data-id="' + item.action + '" data-action="' + item.action + '">' + inner
         + (item.axis ? '<span class="setting-tick" aria-hidden="true">' + (applied ? icon('check') : '') + '</span>' : '') + '</button>';
     }
-    setHTML(appearanceBack, command({ action: 'settings.back', label: t.group === 'rotation' ? 'Background' : t.group === 'inputs' ? 'Samsung' : 'Settings' }, icon('left') + '<span>' + (t.group === 'rotation' ? 'Background' : t.group === 'inputs' ? 'Samsung' : 'Settings') + '</span>', 'setting-back'));
+    setHTML(appearanceBack, command({ action: 'settings.back', label: detailParent(t) }, icon('left') + '<span>' + detailParent(t) + '</span>', 'setting-back'));
     setHTML(appearanceRows, detailSections(t).map(function (section) {
       return '<section class="setting-section' + (section.horizontal ? ' is-horizontal' : '') + ' section-' + section.id + '">'
         + (section.title ? '<h3 class="setting-label" id="setting-' + section.id + '">' + section.title + '</h3>' : '')
@@ -1441,7 +1460,7 @@
         + command({ action: 'settings.retry', label: 'Try again' }, '<span>Try again</span>', 'setting-retry');
     }
     setHTML(appearanceStatus, status);
-    hint = selected.disabled ? '' : selected.action === 'settings.back' ? 'Return to ' + (t.group === 'rotation' ? 'Background' : t.group === 'inputs' ? 'Samsung' : 'Settings') : selected.action === 'settings.retry' ? 'Retry this change' : selected.axis ? 'Apply selected setting' : selected.action === 'background.wallpaper' ? 'Choose a wallpaper' : selected.action === 'background.rotation' ? 'Choose a rotation interval' : 'Open on the TV';
+    hint = selected.disabled ? '' : selected.action === 'settings.back' ? 'Return to ' + detailParent(t) : selected.action === 'settings.retry' ? 'Retry this change' : selected.axis ? 'Apply selected setting' : selected.action === 'background.wallpaper' ? 'Choose a wallpaper' : selected.action === 'background.rotation' ? 'Choose a rotation interval' : selected.action.indexOf('input.') === 0 ? 'Switch to ' + selected.label : 'Open on the TV';
     setHTML(appearanceDesc, hint ? '<span class="remote-key">OK</span><span>' + esc(hint) + '</span>' : '');
   }
   function renderWallpaper(t) {

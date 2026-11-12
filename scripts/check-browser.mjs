@@ -428,6 +428,11 @@ try {
       await nav('back');
       check('Inputs Back returns to Samsung entry ' + layout + '/' + width, (await state()).settingsGroup === 'samsung' && (await state()).focusAction === 'samsung.inputs');
     }
+    await scene('home'); await act('util.inputs'); await current.waitForSelector('[data-action="input.1"]');
+    check('Home Inputs control opens Inputs with Back to Home', (await state()).settingsGroup === 'inputs' && (await current.locator('#appearance .setting-back').innerText()).includes('Home'));
+    check('Inputs focus starts on a reported port', /^input\.\d+$/.test((await state()).focusAction), (await state()).focusAction);
+    await nav('back'); check('Home Inputs Back returns to Home', (await state()).view === 'home');
+    await group('samsung');
     await act('samsung.inputs'); await current.waitForSelector('[data-action="input.1"]');
     await act('input.1'); await current.waitForFunction(() => __tv.calls.some(c => c.id === 'org.tizen.tv-viewer'));
     check('Sleeping input selects its exact port before viewer handoff', await current.evaluate(() => __tv.calls[0].method === 'setSource' && __tv.calls[0].number === 1 && __tv.calls[1].id === 'org.tizen.tv-viewer'));
